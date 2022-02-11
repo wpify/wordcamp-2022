@@ -1,0 +1,14 @@
+{
+  "scripts": {
+    "start": "wp-scripts start",
+    "bundle-analyzer": "wp-scripts start --webpack-bundle-analyzer",
+    "build": "wp-scripts build"
+  },
+  "dependencies": {
+    "@wordpress/scripts": "^21.0.0"
+  },
+  "devDependencies": {
+    "browser-sync-webpack-plugin": "^2.3.0",
+    "node-sass-glob-importer": "^5.3.2"
+  }
+}
