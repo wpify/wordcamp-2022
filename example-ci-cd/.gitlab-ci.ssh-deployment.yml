@@ -1,0 +1,96 @@
+# To use this, you need to run that only on protected branches/tags and add secrets in your gitlab repository:
+# See https://gitlab.com/some/repository/-/settings/repository
+# PRIVATE_KEY - Your private key that you use for deployment via SSH.
+
+# to use this file, copy it to the .gitlab-ci.yml file in your project repository on gitlab.
+
+# The pipeline has two stages: Prepare for building assets and install composer dependecies, and deployment.
+stages:
+  - prepare
+  - deploy
+
+# Basic variables that defines where you want to deploy
+variables:
+  SERVER_ADDR: 150.151.152.153
+  SERVER_USER: ci
+  THEME_PATH: /wp-content/themes/some-example-theme/
+  WORDPRESS_CACHE: /wp-content/cache/
+  COMPOSER_PROCESS_TIMEOUT: 2000
+
+# Install composer dependencies include
+composer:
+  stage: prepare
+  image: composer:2
+  cache:
+    paths:
+      - .composer-cache/
+  artifacts:
+    paths:
+      - ./vendor
+    expire_in: 1 week
+  before_script:
+    - PATH=$(composer global config bin-dir --absolute --quiet):$PATH
+    - composer config -g cache-dir "$(pwd)/.composer-cache"
+    - composer global require wpify/scoper^2
+  script:
+    - composer install --no-dev --optimize-autoloader --no-interaction
+  only:
+    - master
+    - tags
+
+# Install npm dependencies and build the files
+assets:
+  stage: prepare
+  image: node:14
+  artifacts:
+    paths:
+      - ./build
+    expire_in: 1 week
+  script:
+    - npm install
+    - NODE_ENV=production npm run build
+  only:
+    - master
+    - tags
+
+# Deploy files to the server. This is only a template that we will use in following jobs.
+.deploy:
+  stage: deploy
+  image: alpine:latest
+  before_script: # we need first to authenticate the gitlab runner
+    - apk update
+    - apk add openssh-client bash rsync
+    - eval $(ssh-agent -s)
+    - echo "$PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -t rsa "$SERVER_ADDR" >> ~/.ssh/known_hosts
+  script: # And then do a deployment itself
+    - ssh $SERVER_USER@$SERVER_ADDR mkdir -p $SERVER_ROOT$THEME_PATH # create restination folder if not exists
+    - rsync -a --stats --exclude={'.git','node_modules'} . $SERVER_USER@$SERVER_ADDR:$SERVER_ROOT$THEME_PATH # rsync the files
+    - ssh $SERVER_USER@$SERVER_ADDR [[ ! -z "$WORDPRESS_CACHE" ]] && rm -rf $SERVER_ROOT$WORDPRESS_CACHE # delete cache on the server
+
+# Deploy files to production, it must run on protected tags (configure it in gitlab repository settings).
+# The deployment uses the template above.
+production:
+  variables:
+    SERVER_ROOT: /var/www/html
+  environment:
+    name: production
+    url: https://www.example.cz
+  extends: .deploy
+  only:
+    - tags
+
+# Deploy files to test, it must run on protected branch (configure it in gitlab repository settings).
+# The deployment uses the template above.
+test:
+  variables:
+    SERVER_ROOT: /var/www/test
+  environment:
+    name: test
+    url: https://test.example.cz
+  extends: .deploy
+  when: manual
+  only:
+    - branches

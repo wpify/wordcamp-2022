@@ -1,0 +1,62 @@
+# To use this, you need to run that only on protected branches/tags and add secrets in your gitlab repository:
+# See https://gitlab.com/some/repository/-/settings/repository
+# FTP_SERVER
+# FTP_USER
+# FTP_PASSWORD
+
+# to use this file, copy it to the .gitlab-ci.yml file in your project repository on gitlab.
+
+# The pipeline has two stages: Prepare for building assets and install composer dependecies, and deployment.
+stages:
+  - prepare
+  - deploy
+
+# Basic variables that defines where you want to deploy.
+variables:
+  SERVER_PATH: /some/path/on/the/ftp
+
+# Install composer dependencies include.
+composer:
+  stage: prepare
+  image: composer:2
+  cache:
+    paths:
+      - .composer-cache/
+  artifacts:
+    paths:
+      - ./vendor
+    expire_in: 1 week
+  before_script:
+    - PATH=$(composer global config bin-dir --absolute --quiet):$PATH
+    - composer config -g cache-dir "$(pwd)/.composer-cache"
+    - composer global require wpify/scoper^2
+  script:
+    - composer install --no-dev --optimize-autoloader --no-interaction
+  only:
+    - master
+    - tags
+
+# Install npm dependencies and build the files.
+assets:
+  stage: prepare
+  image: node:14
+  artifacts:
+    paths:
+      - ./build
+    expire_in: 1 week
+  script:
+    - npm install
+    - NODE_ENV=production npm run build
+  only:
+    - master
+    - tags
+
+# Deploy the files via FTP.
+deploy:
+  stage: deploy
+  image: ubuntu:18.04
+  before_script:
+    - apt-get update -qy
+    - apt-get install -y lftp
+  script:
+    - lftp -e "set ssl:verify-certificate no; open $FTP_SERVER; user $FTP_USER $FTP_PASSWORD; mirror -X .* -X .*/ --reverse --verbose --delete / $SERVER_PATH/; bye"

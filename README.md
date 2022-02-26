@@ -22,3 +22,13 @@ that via webpack.config.js:
 * Add tailwindcss support
 * Integrate with BrowserSync.
 * Generates SVG Sprites for your svgs.
+
+## Example CI/CD
+
+In this example you can see various pipelines both for Gitlab a Github. It contains example of:
+
+* Build process and deployment via SSH. (gitlab and github)
+* Build process and deployment via FTP. (gitlab)
+* Build process and deployment on WordPress.org. (gitlab)
+* Build process and creating a zip file with plugin. (gitlab)
+* 

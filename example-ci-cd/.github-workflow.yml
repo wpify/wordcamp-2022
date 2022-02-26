@@ -1,0 +1,121 @@
+# Github example shows how to deploy the file using ssh.
+# To use this file, copy it to the .github/workflows/deploy.yml file in your github repository
+
+name: Deploy to server
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  assets:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Node v14
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14.18.3'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install Node deps
+        run: npm install
+
+      - name: Build assets
+        run: NODE_ENV=production npm run build
+
+      - name: Archive plugin artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: assets
+          path: build/
+
+
+  vendor:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v2
+        with:
+          path: /tmp/composer-cache
+          key: ${{ runner.os }}-${{ hashFiles('**/composer.lock') }}
+
+      - name: Install composer
+        uses: php-actions/composer@v6
+        with:
+          php_version: 8.0
+          php_extensions: json
+          version: 2
+          dev: yes
+          progress: no
+          args: --optimize-autoloader --ignore-platform-reqs
+
+      - name: Remove dev dependencies
+        run: composer install --no-dev --optimize-autoloader --ignore-platform-reqs
+
+      - name: Archive plugin artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: vendor
+          path: |
+            vendor/
+
+  develop:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Make artifacts folder
+        run: mkdir -p /tmp/artifacts
+
+      - name: Download assets
+        uses: actions/download-artifact@v2
+        with:
+          path: /tmp/artifacts
+
+      - name: Move artifacts
+        run: |
+          rsync -av /tmp/artifacts/assets/ $GITHUB_WORKSPACE/
+          rsync -av /tmp/artifacts/vendor/ $GITHUB_WORKSPACE/
+
+      - name: Replace version
+        run: |
+          sed -i "s/WPIFY_VERSION/$GITHUB_REF_NAME/g" "$GITHUB_WORKSPACE/some-plugin.php"
+
+      - name: Set authentification
+        env:
+          SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+        run: |
+          eval $(ssh-agent -s -a $SSH_AUTH_SOCK)
+          echo "${{ secrets.PRIVATE_KEY }}" | tr -d '\r' | ssh-add -
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -t rsa "${{ secrets.SERVER }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy the files
+        env:
+          SSH_AUTH_SOCK: /tmp/ssh_agent.sock
+          DESTINATION: ${{ secrets.USER }}@${{ secrets.SERVER }}:${{ secrets.PATH }}
+        run: |
+          ssh $DESTINATION mkdir -p /var/www/html/wp-content/plugins/some-plugin # create restination folder if not exists
+          rsync -a --stats --exclude={'.git','node_modules'} $GITHUB_WORKSPACE/ $DESTINATION/ # rsync the files
+          ssh $DESTINATION rm -rf /var/www/html/wp-content/cache/ # delete cache on the server
+    secrets:
+      PRIVATE_KEY: ${{ secrets.DEV_PRIVATE_KEY }}
+      SERVER: ${{ secrets.DEV_SERVER }}
+      USER: ${{ secrets.DEV_USER }}
+      PATH: ${{ secrets.DEV_PATH }}
+    needs:
+      - assets
+      - vendor

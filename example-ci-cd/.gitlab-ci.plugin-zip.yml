@@ -1,0 +1,75 @@
+# The result of the pipeline will be a zip file stored in pipeline artifacts.
+# You can use other pipelines as an example, how to upload the zip file via SSH or FTP.
+
+# to use this file, copy it to the .gitlab-ci.yml file in your project repository on gitlab.
+
+# The pipeline has two stages: Prepare for building assets and install composer dependecies, and deployment.
+stages:
+  - prepare
+  - deploy
+
+# Basic variables that defines where you want to deploy.
+variables:
+  SERVER_PATH: /some/path/on/the/ftp
+
+# Install composer dependencies include.
+composer:
+  stage: prepare
+  image: composer:2
+  cache:
+    paths:
+      - .composer-cache/
+  artifacts:
+    paths:
+      - ./vendor
+    expire_in: 1 week
+  before_script:
+    - PATH=$(composer global config bin-dir --absolute --quiet):$PATH
+    - composer config -g cache-dir "$(pwd)/.composer-cache"
+    - composer global require wpify/scoper^2
+  script:
+    - composer install --no-dev --optimize-autoloader --no-interaction
+  only:
+    - master
+    - tags
+
+# Install npm dependencies and build the files.
+assets:
+  stage: prepare
+  image: node:14
+  artifacts:
+    paths:
+      - ./build
+    expire_in: 1 week
+  script:
+    - npm install
+    - NODE_ENV=production npm run build
+  only:
+    - master
+    - tags
+
+prepare_zip:
+  stage: deploy
+  image: alpine:latest
+  variables:
+    TARGET_DIR: $CI_PROJECT_DIR/export/$PLUGIN_SLUG
+  artifacts:
+    paths:
+      - $CI_PROJECT_DIR/$PLUGIN_SLUG.zip
+  before_script:
+    - |
+      mkdir -p "$TARGET_DIR"
+      rsync -a --stats --exclude={'.git','node_modules'} "$CI_PROJECT_DIR/" "$TARGET_DIR/"
+      find . -type d | grep .git | xargs rm -rf
+
+      if [ -f "$TARGET_DIR/$PLUGIN_SLUG.php" ]; then
+        sed -i "s/WPIFY_VERSION/$CI_COMMIT_REF_NAME/g" "$TARGET_DIR/$PLUGIN_SLUG.php"
+      fi
+
+      if [ -f "$CI_PROJECT_DIR/plugin.json" ]; then
+        sed -i "s/WPIFY_VERSION/$CI_COMMIT_REF_NAME/g" "$CI_PROJECT_DIR/plugin.json"
+      fi
+
+      cd "$CI_PROJECT_DIR/export/"
+      zip -r "../$PLUGIN_SLUG-$CI_COMMIT_REF_NAME.zip" *
+      cd "$CI_PROJECT_DIR"

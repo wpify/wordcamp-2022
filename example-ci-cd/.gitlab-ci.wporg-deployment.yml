@@ -1,0 +1,140 @@
+# To use this, you need to run that only on protected branches/tags and add secrets in your gitlab repository:
+# See https://gitlab.com/some/repository/-/settings/repository
+# WPORG_USERNAME - Your username on wp.org
+# WPORG_PASSWORD
+#
+# Also, this script replaces WPORG_VERSION string with actual version from tag.
+
+# to use this file, copy it to the .gitlab-ci.yml file in your project repository on gitlab.
+
+# The pipeline has two stages: Prepare for building assets and install composer dependecies, and deployment.
+stages:
+  - prepare
+  - deploy
+
+# Basic variables that defines where you want to deploy
+variables:
+  PLUGIN_SLUG: example-plugin
+
+# Install composer dependencies include
+composer:
+  stage: prepare
+  image: composer:2
+  cache:
+    paths:
+      - .composer-cache/
+  artifacts:
+    paths:
+      - ./vendor
+    expire_in: 1 week
+  before_script:
+    - PATH=$(composer global config bin-dir --absolute --quiet):$PATH
+    - composer config -g cache-dir "$(pwd)/.composer-cache"
+    - composer global require wpify/scoper^2
+  script:
+    - composer install --no-dev --optimize-autoloader --no-interaction
+  only:
+    - master
+    - tags
+
+# Install npm dependencies and build the files
+assets:
+  stage: prepare
+  image: node:14
+  artifacts:
+    paths:
+      - ./build
+    expire_in: 1 week
+  script:
+    - npm install
+    - NODE_ENV=production npm run build
+  only:
+    - master
+    - tags
+
+# Deploy files to wporg, it must run on protected tags (configure it in gitlab repository settings).
+# The deployment uses the template above.
+deploy:
+  stage: deploy
+  image: alpine:latest
+  variables:
+    SVN_URL: https://plugins.svn.wordpress.org/$PLUGIN_SLUG/
+    SVN_DIR: $CI_PROJECT_DIR/svn
+    SVN_TAG_DIR: $CI_PROJECT_DIR/svn/tags/$CI_COMMIT_REF_NAME
+  before_script:
+    - apk update
+    - apk add subversion bash rsync
+  script:
+    - |
+      # Plugin deployment
+      # inspiration: https://github.com/ethitter/wp-org-plugin-deploy/blob/master/scripts/deploy.sh
+
+      # Note that this does not use pipefail
+      # because if the grep later doesn't match any deleted files,
+      # which is likely the majority case,
+      # it does not exit with a 0, and I only care about the final exit.
+      set -eo
+      set +o pipefail
+
+      # Ensure certain environment variables are set
+      if [[ -z "$WPORG_USERNAME" ]]; then
+        echo "𝘅︎ WordPress.org username not set" 1>&2
+        exit 1
+      fi
+
+      if [[ -z "$WPORG_PASSWORD" ]]; then
+        echo "𝘅︎ WordPress.org password not set" 1>&2
+        exit 1
+      fi
+
+      # Limit checkouts for efficiency
+      echo "➤ Checking out dotorg repository..."
+      svn checkout --depth immediates "$SVN_URL" "$SVN_DIR"
+
+      cd "$SVN_DIR"
+
+      svn update --set-depth infinity assets
+      svn update --set-depth infinity trunk
+      svn update --set-depth infinity "$SVN_TAG_DIR"
+
+      # Copy from clean copy to /trunk
+      echo "➤ Copying files..."
+      rsync -a --stats --exclude={'.git','node_modules'} "$CI_PROJECT_DIR/" "$SVN_DIR/trunk/"
+      rsync -a --stats --delete "$CI_PROJECT_DIR/assets-wporg/" "$SVN_DIR/assets/"
+
+      echo "➤ Replacing WPORG_VERSION..."
+      sed -i "s/WPORG_VERSION/$CI_COMMIT_REF_NAME/g" "$SVN_DIR/trunk/$PLUGIN_SLUG.php"
+
+      # Add everything and commit to SVN
+      # The force flag ensures we recurse into subdirectories even if they are already added
+      # Suppress stdout in favor of svn status later for readability
+      echo "➤ Preparing files..."
+      svn add . --force > /dev/null
+
+      # SVN delete all deleted files
+      # Also suppress stdout here
+      echo "➤ Delete all deleted files...@"
+      svn status | grep '^\!' | sed 's/! *\(.*\)/\1@/' | xargs -I% svn rm % > /dev/null
+
+      # If tag already exists, remove and update from trunk.
+      # Generally, this applies when bumping WP version compatibility.
+      # svn doesn't have a proper rename function, prompting the remove/copy dance.
+      if [[ -d "$SVN_TAG_DIR" ]]; then
+        echo "➤ Removing existing tag before update..."
+      	svn rm "$SVN_TAG_DIR"
+      fi
+
+      # Copy new/updated tag to maintain svn history.
+      if [[ ! -d "$SVN_TAG_DIR" ]]; then
+        echo "➤ Copying tag..."
+        svn cp "trunk" "$SVN_TAG_DIR"
+      fi
+
+      svn status
+
+      echo "➤ Committing files..."
+      svn commit -m "Update to version $CI_COMMIT_REF_NAME" --no-auth-cache --non-interactive  --username "$WPORG_USERNAME" --password "$WPORG_PASSWORD"
+      echo "✓ Plugin deployed!"
+
+      # cleanup
+      rm -rf "$SVN_DIR"
