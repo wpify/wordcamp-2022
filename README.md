@@ -31,4 +31,3 @@ In this example you can see various pipelines both for Gitlab a Github. It conta
 * Build process and deployment via FTP. (gitlab)
 * Build process and deployment on WordPress.org. (gitlab)
 * Build process and creating a zip file with plugin. (gitlab)
-* 
