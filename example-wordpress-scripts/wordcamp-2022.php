@@ -13,9 +13,18 @@
  * Domain Path:       /languages
 */
 
-new class {
+namespace WordCamp2022Example;
+
+class Plugin {
     public function __construct() {
+        // Enqueue scripts and styles on the frontend.
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
+
+        // Inline sprites, so we can use it later on.
+        add_action( 'wp_body_open', array( $this, 'inline_svgsprite' ) );
+
+        // Print a nice star from SVG sprite on the page.
+        add_action( 'wp_body_open', array( $this, 'print_svg_star' ) );
     }
 
     public function enqueue_scripts() {
@@ -24,7 +33,7 @@ new class {
     }
 
     public function enqueue_script( $name, $handle, $type ) {
-        $asset = require __DIR__ . '/build/app.asset.php';
+        $asset = require __DIR__ . '/build/main.asset.php';
         $deps  = $asset['dependencies'];
         $ver   = $asset['version'];
 
@@ -36,5 +45,33 @@ new class {
             wp_enqueue_style( $handle, $src, array(), $ver );
         }
     }
-};
+
+    public function inline_svgsprite() {
+        ?>
+        <div style="width:0;height:0;overflow:hidden">
+            <?php echo file_get_contents( __DIR__ . '/build/sprites.svg' ); ?>
+        </div>
+        <?php
+    }
+
+    public function print_svg_star() {
+        ?>
+        <svg class="sprite sprite--star">
+            <use xlink:href="#sprite-star"></use>
+        </svg>
+        <?php
+    }
+}
+
+function wordcamp2022example() {
+    static $plugin;
+
+    if ( empty( $plugin ) ) {
+        $plugin = new Plugin();
+    }
+
+    return $plugin;
+}
+
+add_action( 'plugins_loaded', 'wordcamp2022example', 11 );
 

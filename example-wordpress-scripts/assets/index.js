@@ -10,7 +10,7 @@ const App = () => {
   );
 };
 
-document.addEventListener('DOMContentLoaded', function (event) {
+document.addEventListener('DOMContentLoaded', function () {
   const items = document.querySelectorAll('[data-app="wordcamp"]');
   if (items) {
     items.forEach((item) => ReactDOM.render(<App/>, item));
