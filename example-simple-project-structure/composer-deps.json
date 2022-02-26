@@ -1,0 +1,13 @@
+{
+  "config": {
+    "platform-check": false,
+    "process-timeout": 1200
+  },
+  "require": {
+    "php": "^8.0",
+    "ext-json": "*",
+    "php-di/php-di": "^6.3",
+    "psr/log": "^3",
+    "mpdf/mpdf": "^8.0"
+  }
+}

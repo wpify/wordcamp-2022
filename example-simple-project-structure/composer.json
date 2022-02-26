@@ -1,0 +1,30 @@
+{
+    "name": "wpify/wordcamp-example-project",
+    "autoload": {
+        "psr-4": {
+            "Wordcamp\\Prague\\Wpify\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Václav Greif",
+            "email": "vaclav@wpify.io"
+        },
+        {
+            "name": "Daniel Mejta",
+            "email": "daniel@wpify.io"
+        }
+    ],
+    "require-dev": {
+        "wpify/scoper": "^2.4"
+    },
+    "extra": {
+        "wpify-scoper": {
+            "prefix": "WordcampDeps",
+            "globals": [
+                "wordpress",
+                "woocommerce"
+            ]
+        }
+    }
+}
