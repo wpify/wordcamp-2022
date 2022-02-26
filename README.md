@@ -31,3 +31,9 @@ In this example you can see various pipelines both for Gitlab a Github. It conta
 * Build process and deployment via FTP. (gitlab)
 * Build process and deployment on WordPress.org. (gitlab)
 * Build process and creating a zip file with plugin. (gitlab)
+
+## Links
+
+* [WPify Scoper](https://gitlab.com/wpify/scoper) - Scoping of Composer dependencies.
+* [WPify Custom Fields](https://gitlab.com/wpify/custom-fields) - Custom fields for WordPress plugins.
+* [Plugin Skeleton](https://gitlab.com/wpify/plugin-skeleton) - Starting template for WordPress plugins.
